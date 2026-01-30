@@ -1,0 +1,11 @@
+[server]
+maxUploadSize = 1000  # 1GB limit for large WhatsApp/ChatGPT exports
+fileWatcherType = "auto"
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"

@@ -1,0 +1,33 @@
+# CogniVault Integrated - Complete Requirements
+# VERITAS BUILD - All dependencies for full system
+
+# Core CogniVault requirements
+streamlit>=1.28.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Audio processing
+openai-whisper>=20231117
+
+# Image processing
+Pillow>=10.0.0
+
+# Document processing
+pdfplumber>=0.9.0
+python-docx>=0.8.11
+beautifulsoup4>=4.12.0
+
+# API integrations
+requests>=2.31.0
+urllib3>=2.0.0
+
+# System monitoring
+psutil>=5.9.0
+
+# Additional utilities
+python-magic-bin>=0.4.14; platform_system == "Windows"
+python-magic>=0.4.27; platform_system != "Windows"
+
+# Development and debugging
+python-dotenv>=1.0.0chardet>=5.0.0
