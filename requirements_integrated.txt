@@ -30,4 +30,8 @@ python-magic-bin>=0.4.14; platform_system == "Windows"
 python-magic>=0.4.27; platform_system != "Windows"
 
 # Development and debugging
-python-dotenv>=1.0.0chardet>=5.0.0
+python-dotenv>=1.0.0
+chardet>=5.0.0
+
+# Memory Bridge (Aluna-Memory integration)
+# requests already included above
