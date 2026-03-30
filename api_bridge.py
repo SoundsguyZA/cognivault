@@ -1,21 +1,40 @@
 #!/usr/bin/env python3
 """
-CogniVault API Bridge - Groq Cloud + Local Gemma
+CogniVault API Bridge - Provider-Agnostic OpenAI-Compatible
 VERITAS BUILD
 """
 
 import requests
-import json
 import os
-from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import streamlit as st
-from datetime import datetime
+
+# Known provider base URLs for convenience
+KNOWN_PROVIDERS = {
+    "Groq": "https://api.groq.com/openai/v1",
+    "OpenRouter": "https://openrouter.ai/api/v1",
+    "Novita": "https://api.novita.ai/v3/openai",
+    "HuggingFace": "https://api-inference.huggingface.co/v1",
+    "Ollama (local)": "http://localhost:11434/v1",
+    "Custom": "",
+}
+
+# Groq Whisper is separate — most providers don't do audio transcription
+GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+
+
+def get_provider_config() -> Dict[str, str]:
+    """Get active provider config from session state."""
+    return {
+        'base_url': st.session_state.get('provider_base_url', ''),
+        'api_key': st.session_state.get('provider_api_key', ''),
+        'model': st.session_state.get('provider_model', ''),
+    }
 
 
 def get_groq_key() -> str:
-    """Get Groq API key from session state, falling back to env var."""
-    return st.session_state.get('groq_api_key', '') or os.getenv('GROQ_API_KEY', '')
+    """Groq key specifically for Whisper transcription."""
+    return st.session_state.get('groq_whisper_key', '') or os.getenv('GROQ_API_KEY', '')
 
 
 class APIBridge:
@@ -23,33 +42,29 @@ class APIBridge:
         self.cv = cognivault_instance
 
     def get_available_services(self) -> List[Dict[str, Any]]:
-        """Get list of available AI services."""
+        """Check what's available."""
         services = []
+        cfg = get_provider_config()
+
+        services.append({
+            'name': f"LLM ({st.session_state.get('provider_name', 'not set')})",
+            'available': bool(cfg['base_url'] and cfg['api_key'] and cfg['model']),
+            'error': None if (cfg['base_url'] and cfg['api_key'] and cfg['model'])
+                     else 'Set provider, API key and model in sidebar',
+        })
 
         groq_key = get_groq_key()
         services.append({
-            'name': 'groq',
+            'name': 'Groq Whisper (audio)',
             'available': bool(groq_key),
-            'error': None if groq_key else 'No Groq API key set',
+            'error': None if groq_key else 'Add Groq key for audio transcription',
         })
-
-        try:
-            response = requests.get('http://localhost:11434/api/tags', timeout=3)
-            models = response.json().get('models', []) if response.status_code == 200 else []
-            gemma_available = any('gemma' in m.get('name', '').lower() for m in models)
-            services.append({
-                'name': 'local_gemma',
-                'available': gemma_available,
-                'error': None if gemma_available else 'Ollama not running or no Gemma model',
-            })
-        except Exception:
-            services.append({'name': 'local_gemma', 'available': False, 'error': 'Ollama not running'})
 
         return services
 
-    def query_with_context(self, query: str, service: str = 'groq',
+    def query_with_context(self, query: str, service: str = 'llm',
                            include_search: bool = True, search_limit: int = 5) -> Dict[str, Any]:
-        """Query AI service with CogniVault context."""
+        """Query AI with optional RAG context."""
         context = ""
         if include_search and self.cv:
             search_results = self.cv.vector_store.search(query, top_k=search_limit)
@@ -77,34 +92,48 @@ Answer based on the context. If it's not relevant, say so."""
         else:
             full_prompt = query
 
-        if service == 'groq':
-            return self.query_groq(full_prompt)
-        elif service == 'local_gemma':
-            return self.query_local_gemma(full_prompt)
-        else:
-            return {'success': False, 'error': f'Unknown service: {service}'}
+        return self.query_llm(full_prompt)
 
-    def query_groq(self, prompt: str, model: str = 'llama-3.3-70b-versatile') -> Dict[str, Any]:
-        """Query Groq Cloud LLM."""
-        api_key = get_groq_key()
-        if not api_key:
-            return {'success': False, 'error': 'No Groq API key. Add it in the sidebar.'}
+    def query_llm(self, prompt: str) -> Dict[str, Any]:
+        """Query any OpenAI-compatible provider."""
+        cfg = get_provider_config()
+
+        if not cfg['base_url']:
+            return {'success': False, 'error': 'No provider base URL set. Check sidebar.'}
+        if not cfg['api_key']:
+            return {'success': False, 'error': 'No API key set. Check sidebar.'}
+        if not cfg['model']:
+            return {'success': False, 'error': 'No model set. Check sidebar.'}
+
+        url = cfg['base_url'].rstrip('/') + '/chat/completions'
+        headers = {
+            'Authorization': f'Bearer {cfg["api_key"]}',
+            'Content-Type': 'application/json',
+        }
+        # OpenRouter requires these headers
+        if 'openrouter' in cfg['base_url']:
+            headers['HTTP-Referer'] = 'https://cognivault.app'
+            headers['X-Title'] = 'CogniVault'
 
         try:
             response = requests.post(
-                'https://api.groq.com/openai/v1/chat/completions',
-                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                json={'model': model, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 2000},
+                url,
+                headers=headers,
+                json={
+                    'model': cfg['model'],
+                    'messages': [{'role': 'user', 'content': prompt}],
+                    'max_tokens': 2000,
+                },
                 timeout=60
             )
             if response.status_code == 200:
                 return {
                     'success': True,
-                    'service': 'groq',
+                    'service': st.session_state.get('provider_name', 'llm'),
                     'response': response.json()['choices'][0]['message']['content'],
-                    'context_used': bool(self.cv)
+                    'context_used': bool(self.cv),
                 }
-            return {'success': False, 'error': f'HTTP {response.status_code}: {response.text}'}
+            return {'success': False, 'error': f'HTTP {response.status_code}: {response.text[:200]}'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
@@ -112,12 +141,12 @@ Answer based on the context. If it's not relevant, say so."""
         """Transcribe audio using Groq Whisper."""
         api_key = get_groq_key()
         if not api_key:
-            return {'success': False, 'error': 'No Groq API key. Add it in the sidebar.'}
+            return {'success': False, 'error': 'No Groq key for Whisper. Add it in sidebar.'}
 
         try:
             with open(audio_file_path, 'rb') as f:
                 response = requests.post(
-                    'https://api.groq.com/openai/v1/audio/transcriptions',
+                    GROQ_WHISPER_URL,
                     headers={'Authorization': f'Bearer {api_key}'},
                     files={'file': f},
                     data={'model': 'whisper-large-v3'},
@@ -125,25 +154,6 @@ Answer based on the context. If it's not relevant, say so."""
                 )
             if response.status_code == 200:
                 return {'success': True, 'transcript': response.json().get('text', '')}
-            return {'success': False, 'error': f'HTTP {response.status_code}: {response.text}'}
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-
-    def query_local_gemma(self, prompt: str) -> Dict[str, Any]:
-        """Query local Gemma via Ollama."""
-        try:
-            response = requests.post(
-                'http://localhost:11434/api/generate',
-                json={'model': 'gemma2:2b', 'prompt': prompt, 'stream': False},
-                timeout=60
-            )
-            if response.status_code == 200:
-                return {
-                    'success': True,
-                    'service': 'local_gemma',
-                    'response': response.json().get('response', ''),
-                    'context_used': bool(self.cv)
-                }
-            return {'success': False, 'error': f'HTTP {response.status_code}: {response.text}'}
+            return {'success': False, 'error': f'HTTP {response.status_code}: {response.text[:200]}'}
         except Exception as e:
             return {'success': False, 'error': str(e)}

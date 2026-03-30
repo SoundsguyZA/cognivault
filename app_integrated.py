@@ -125,18 +125,46 @@ class CogniVaultIntegrated:
 
         st.divider()
 
-        # API Keys
-        st.subheader("API Keys")
-        groq_key = st.text_input(
-            "Groq API Key",
-            value=st.session_state.get('groq_api_key', ''),
-            type="password",
-            placeholder="gsk_...",
-            key="groq_key_input"
+        # Provider config
+        st.subheader("AI Provider")
+        from api_bridge import KNOWN_PROVIDERS
+
+        provider_name = st.selectbox(
+            "Provider",
+            list(KNOWN_PROVIDERS.keys()),
+            index=list(KNOWN_PROVIDERS.keys()).index(st.session_state.get('provider_name', 'Groq')),
+            key="provider_select"
         )
-        if groq_key != st.session_state.get('groq_api_key', ''):
-            st.session_state['groq_api_key'] = groq_key
-            st.rerun()
+        st.session_state['provider_name'] = provider_name
+
+        if provider_name == "Custom":
+            base_url = st.text_input("Base URL", value=st.session_state.get('provider_base_url', ''), placeholder="https://...")
+        else:
+            base_url = KNOWN_PROVIDERS[provider_name]
+            st.caption(f"`{base_url}`")
+        st.session_state['provider_base_url'] = base_url
+
+        api_key = st.text_input(
+            "API Key", type="password",
+            value=st.session_state.get('provider_api_key', ''),
+            placeholder="Your key..."
+        )
+        st.session_state['provider_api_key'] = api_key
+
+        model = st.text_input(
+            "Model", value=st.session_state.get('provider_model', ''),
+            placeholder="e.g. llama-3.3-70b-versatile"
+        )
+        st.session_state['provider_model'] = model
+
+        st.divider()
+        st.subheader("Audio Transcription")
+        groq_whisper_key = st.text_input(
+            "Groq Key (Whisper)", type="password",
+            value=st.session_state.get('groq_whisper_key', ''),
+            placeholder="gsk_... (Groq only)"
+        )
+        st.session_state['groq_whisper_key'] = groq_whisper_key
 
         st.divider()
 
