@@ -18,6 +18,7 @@ import tempfile
 import zipfile
 import json
 from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
 from datetime import datetime
 import hashlib
@@ -115,15 +116,30 @@ class CogniVaultIntegrated:
     def render_system_status(self):
         """Render system status in sidebar"""
         st.header("System Status")
-        
+
         # Core system stats
         stats = self.vector_store.get_statistics()
         st.metric("Documents", stats.get('documents', 0))
         st.metric("Audio Files", stats.get('audio_files', 0))
         st.metric("Images", stats.get('images', 0))
-        
+
         st.divider()
-        
+
+        # API Keys
+        st.subheader("API Keys")
+        groq_key = st.text_input(
+            "Groq API Key",
+            value=st.session_state.get('groq_api_key', ''),
+            type="password",
+            placeholder="gsk_...",
+            key="groq_key_input"
+        )
+        if groq_key != st.session_state.get('groq_api_key', ''):
+            st.session_state['groq_api_key'] = groq_key
+            st.rerun()
+
+        st.divider()
+
         # API Service Status
         st.subheader("AI Services")
         services = self.api_bridge.get_available_services()
