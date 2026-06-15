@@ -36,6 +36,7 @@ from api_bridge import APIBridge
 from whatsapp_processor import WhatsAppProcessor
 from mene_portal_integration import MenePortalIntegration
 from local_gemma_setup import LocalGemmaSetup
+from cloud_storage import CloudStorageManager
 
 # Page configuration
 st.set_page_config(
@@ -78,7 +79,7 @@ class CogniVaultIntegrated:
             self.render_system_status()
             
         # Main navigation tabs
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
             "📂 Upload & Process", 
             "🔍 AI Search", 
             "💬 WhatsApp Chat",
@@ -86,7 +87,8 @@ class CogniVaultIntegrated:
             "🤖 Local Gemma",
             "🎵 Audio Library", 
             "🖼️ Image Gallery", 
-            "📈 Analytics"
+            "📈 Analytics",
+            "☁️ Storage & Backup"
         ])
         
         with tab1:
@@ -112,6 +114,9 @@ class CogniVaultIntegrated:
             
         with tab8:
             self.analytics_dashboard()
+
+        with tab9:
+            self.storage_and_backup_interface()
     
     def render_system_status(self):
         """Render system status in sidebar"""
@@ -730,6 +735,130 @@ class CogniVaultIntegrated:
             file_name=filename,
             mime="application/json"
         )
+
+    def storage_and_backup_interface(self):
+        """Storage and Backup configuration interface"""
+        st.header("☁️ Storage & Backup")
+
+        st.info("CogniVault runs 100% locally by default. You can backup your entire knowledge base to AWS S3 or Cloudflare R2.")
+
+        # Determine current storage mode
+        storage_mode = st.radio(
+            "Storage Mode",
+            ["Local Only (Default)", "Cloud Backup (S3 / Cloudflare R2)"],
+            index=1 if st.session_state.get('cloud_backup_enabled', False) else 0
+        )
+
+        is_cloud = storage_mode == "Cloud Backup (S3 / Cloudflare R2)"
+        st.session_state['cloud_backup_enabled'] = is_cloud
+
+        if is_cloud:
+            st.subheader("Cloud Provider Configuration")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                provider_type = st.selectbox("Provider", ["AWS S3", "Cloudflare R2", "Custom S3 Compatible"])
+
+                # Setup default endpoint based on provider
+                default_endpoint = ""
+                if provider_type == "Cloudflare R2":
+                    default_endpoint = "https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+
+                endpoint_url = st.text_input(
+                    "Endpoint URL",
+                    value=st.session_state.get('s3_endpoint_url', default_endpoint),
+                    help="Leave blank for standard AWS S3. Required for Cloudflare R2 or custom providers."
+                )
+                st.session_state['s3_endpoint_url'] = endpoint_url
+
+                region_name = st.text_input(
+                    "Region",
+                    value=st.session_state.get('s3_region', 'auto'),
+                    help="e.g. us-east-1, eu-west-1. Use 'auto' for Cloudflare R2."
+                )
+                st.session_state['s3_region'] = region_name
+
+            with col2:
+                bucket_name = st.text_input(
+                    "Bucket Name",
+                    value=st.session_state.get('s3_bucket_name', '')
+                )
+                st.session_state['s3_bucket_name'] = bucket_name
+
+                access_key = st.text_input(
+                    "Access Key ID",
+                    type="password",
+                    value=st.session_state.get('s3_access_key', '')
+                )
+                st.session_state['s3_access_key'] = access_key
+
+                secret_key = st.text_input(
+                    "Secret Access Key",
+                    type="password",
+                    value=st.session_state.get('s3_secret_key', '')
+                )
+                st.session_state['s3_secret_key'] = secret_key
+
+            # Test and Sync Actions
+            st.divider()
+            st.subheader("Backup Actions")
+
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                if st.button("🧪 Test Connection"):
+                    if not (access_key and secret_key and bucket_name):
+                        st.warning("Please fill in Access Key, Secret Key, and Bucket Name.")
+                    else:
+                        with st.spinner("Testing connection..."):
+                            cloud_manager = CloudStorageManager(
+                                endpoint_url=endpoint_url if endpoint_url else None,
+                                access_key=access_key,
+                                secret_key=secret_key,
+                                region_name=region_name,
+                                bucket_name=bucket_name
+                            )
+                            success, msg = cloud_manager.test_connection()
+                            if success:
+                                st.success(f"✅ {msg}")
+                            else:
+                                st.error(f"❌ {msg}")
+
+            with col_b:
+                if st.button("☁️ Sync to Cloud Now", type="primary"):
+                    if not (access_key and secret_key and bucket_name):
+                        st.warning("Please fill in Access Key, Secret Key, and Bucket Name.")
+                    else:
+                        with st.spinner("Syncing data to cloud... This may take a while depending on your library size."):
+                            cloud_manager = CloudStorageManager(
+                                endpoint_url=endpoint_url if endpoint_url else None,
+                                access_key=access_key,
+                                secret_key=secret_key,
+                                region_name=region_name,
+                                bucket_name=bucket_name
+                            )
+
+                            success, msg, uploaded, failed = cloud_manager.sync_directory_to_cloud(
+                                self.base_dir,
+                                prefix="cognivault_backup"
+                            )
+
+                            if success:
+                                if failed == 0:
+                                    st.success(f"✅ {msg}")
+                                    st.balloons()
+                                else:
+                                    st.warning(f"⚠️ {msg}")
+                            else:
+                                st.error(f"❌ {msg}")
+        else:
+            st.success("🛡️ Your data is currently stored strictly on your local machine.")
+            st.write(f"**Local Data Path:** `{self.base_dir}`")
+
+            st.write("### Local Storage Stats")
+            stats = self.vector_store.get_detailed_statistics()
+            st.metric("Total Storage Used", format_file_size(stats.get('storage_used', 0)))
 
 def main():
     """Main application entry point"""
